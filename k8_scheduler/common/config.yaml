@@ -11,10 +11,15 @@ penalties:
 
 stability:
   floating_average_window: 30 # in minutes
-  link_timeout: 10 # in seconds
+  link_timeout: 10000 # in seconds
 
 scheduler:
   evolutionary:
     generations: 100
     children_per_parent: 15
     survivors_per_generation: 15
+
+
+mqtt:
+  host: "127.0.0.1:1883"
+  topic: "network/linkdata"

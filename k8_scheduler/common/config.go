@@ -30,6 +30,10 @@ type Config struct {
 			SurvivorsPerGeneration int `yaml:"survivors_per_generation"`
 		} `yaml:"evolutionary"`
 	} `yaml:"scheduler"`
+	MQTT struct {
+		Host  string `yaml:"host"`
+		Topic string `yaml:"topic"`
+	}
 }
 
 var Cfg Config

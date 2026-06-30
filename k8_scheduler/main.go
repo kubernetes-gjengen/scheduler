@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
+	"maps"
 	"os"
+	"slices"
 	"time"
 
 	"k8_scheduler/common"
@@ -25,6 +29,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
+)
+
+const (
+	clientID = "scheduler"
 )
 
 func main() {
@@ -43,6 +53,26 @@ func main() {
 	quit := make(chan struct{})
 
 	clientset := connectToK8s()
+
+	networkLinksMap := make(map[string]common.Link)
+
+	opts := mqtt.NewClientOptions()
+	opts.AddBroker(common.Cfg.MQTT.Host)
+	opts.SetClientID(clientID)
+	opts.OnConnect = connectHandler
+	opts.OnConnectionLost = connectLostHandler
+
+	client := mqtt.NewClient(opts)
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
+	client.Subscribe(common.Cfg.MQTT.Topic, 1, func(c mqtt.Client, m mqtt.Message) {
+		// fmt.Println("Received MSG")
+		var link common.Link
+		json.Unmarshal(m.Payload(), &link)
+		networkLinksMap[link.Source+";"+link.Target] = link
+		// fmt.Println(networkLinksMap)
+	})
 
 	stop := make(chan struct{})
 	defer close(stop)
@@ -118,7 +148,7 @@ func main() {
 					}
 				}
 
-				networkgraph.SetNetworkKnowledge(queryLinkAPI())
+				networkgraph.SetNetworkKnowledge(slices.Collect(maps.Values(networkLinksMap)))
 				currentGraph := networkgraph.GetGraph()
 				visualizer.DrawGraph(currentGraph, "pre")
 				if len(unscheduledPods) > 0 && !terminatingPodsExist {
@@ -320,4 +350,12 @@ func realiseGraph(graph gograph.Graph[string, *common.Node], clientset *kubernet
 		}
 		// visualizer.DrawGraph(graph)
 	}
+}
+
+var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
+	fmt.Println("Connected to MQTT Broker")
+}
+
+var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
+	fmt.Printf("Connection lost: %v", err)
 }
