@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"k8_scheduler/common"
 	"k8_scheduler/scheduler/evaluator"
-	"log"
+	"log/slog"
 	"math"
 	"math/rand"
 	"sort"
 
 	gograph "github.com/dominikbraun/graph"
 )
+
 
 type Solution struct {
 	graph gograph.Graph[string, *common.Node]
@@ -27,6 +28,8 @@ func EvolutionarySolve(
 	generations := cfg.Generations
 	childrenPerParent := cfg.ChildrenPerParent
 	survivorsPerGen := cfg.SurvivorsPerGeneration
+
+	common.LogSolveContext(pods)
 
 	// ---------- Initial population (diverse) ----------
 
@@ -187,7 +190,8 @@ func EvolutionarySolve(
 		}
 	}
 
-	log.Println("Final best evaluation:", currentBest.value)
+	slog.Info("evolutionary solve complete", "score", currentBest.value)
+	common.LogFinalAssignments(currentBest.graph)
 
 	return currentBest.graph
 }

@@ -22,3 +22,6 @@ scheduler:
 mqtt:
   host: "192.168.3.19:31883"
   topic: "network/linkdata"
+
+log_level: "debug" # "debug" | "info" | "warn" | "error"
+log_time_format: "time" # "time" = 15:04:05 | "datetime" = 2006-01-02 15:04:05 | omit = rfc3339

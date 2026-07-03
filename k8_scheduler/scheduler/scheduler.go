@@ -22,7 +22,7 @@ func SchedulePods(graph gograph.Graph[string, *common.Node], pods []corev1.Pod, 
 		vertices = append(vertices, common.PodToVertex(pod))
 	}
 
-	return algorithms.EvolutionarySolve(graphCopy, vertices, false, visualize)
+	return algorithms.EvolutionarySolve(graphCopy, vertices, debug, visualize)
 }
 
 /*

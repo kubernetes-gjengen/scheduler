@@ -3,8 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"log"
+	"log/slog"
 	"maps"
 	"os"
 	"slices"
@@ -49,6 +48,24 @@ func main() {
 
 	common.LoadConfig(os.Args[2])
 
+	var lvl slog.Level
+	lvl.UnmarshalText([]byte(common.Cfg.LogLevel))
+	timeFmt := map[string]string{
+		"time":     "15:04:05",
+		"datetime": "2006-01-02 15:04:05",
+	}[common.Cfg.LogTimeFormat]
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: lvl,
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if timeFmt != "" && a.Key == slog.TimeKey {
+				if t, ok := a.Value.Any().(time.Time); ok {
+					return slog.String(slog.TimeKey, t.Format(timeFmt))
+				}
+			}
+			return a
+		},
+	})))
+
 	ticker := time.NewTicker(10 * time.Second)
 	quit := make(chan struct{})
 
@@ -81,62 +98,29 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				log.Println("==================================================")
 				k8knowledge := queryK8API(*clientset)
 				networkgraph.SetK8Knowledge(k8knowledge)
 
 				for _, node := range networkgraph.GetK8Knowledge().Nodes {
-
-					var nodeCondition k8.NodeCondition
-					for _, cond := range node.Status.Conditions {
-						if cond.Type == k8.NodeReady {
-							nodeCondition = cond
-						}
-					}
 					cpu := node.Status.Allocatable[v1.ResourceCPU]
 					mem := node.Status.Allocatable[v1.ResourceMemory]
-					log.Printf(
-						"Found Node: %s, Online %t, Status %s, Available CPU: %s, Available Mem: %s\n",
-						node.Name,
-						common.IsNodeOnline(&node),
-						&nodeCondition,
-						cpu.String(),
-						mem.String(),
-					)
+					args := []any{"name", node.Name, "online", common.IsNodeOnline(&node), "cpu", cpu.String(), "mem", mem.String()}
+					for k, v := range node.Labels {
+						if !common.IsSystemLabel(k) {
+							args = append(args, k, v)
+						}
+					}
+					slog.Debug("node", args...)
 				}
 				unscheduledPods := []k8.Pod{}
 				terminatingPodsExist := false
 				for _, pod := range networkgraph.GetK8Knowledge().Pods {
-					log.Printf(
-						"Found Pod: %s, Phase: %s, NodeName: %s, Scheduler: %s, DeletionTimestamp: %s, CPUReq: %s, MemReq: %s, Status: %s\n",
-						pod.Name,
-						pod.Status.Phase,
-						pod.Spec.NodeName,
-						pod.Spec.SchedulerName,
-						func() string {
-							if pod.DeletionTimestamp != nil {
-								return pod.DeletionTimestamp.String()
-							}
-							return "<none>"
-						}(),
-						func() string {
-							cpu, mem := resource.Quantity{}, resource.Quantity{}
-							for _, c := range pod.Spec.Containers {
-								cpu.Add(c.Resources.Requests[v1.ResourceCPU])
-								mem.Add(c.Resources.Requests[v1.ResourceMemory])
-							}
-							return cpu.String()
-						}(),
-						func() string {
-							cpu, mem := resource.Quantity{}, resource.Quantity{}
-							for _, c := range pod.Spec.Containers {
-								cpu.Add(c.Resources.Requests[v1.ResourceCPU])
-								mem.Add(c.Resources.Requests[v1.ResourceMemory])
-							}
-							return mem.String()
-						}(),
-						&pod.Status.Conditions,
-					)
+					var cpuReq, memReq resource.Quantity
+					for _, c := range pod.Spec.Containers {
+						cpuReq.Add(c.Resources.Requests[v1.ResourceCPU])
+						memReq.Add(c.Resources.Requests[v1.ResourceMemory])
+					}
+					slog.Debug("pod", "name", pod.Name, "phase", pod.Status.Phase, "node", pod.Spec.NodeName, "terminating", pod.DeletionTimestamp != nil, "cpu", cpuReq.String(), "mem", memReq.String())
 
 					// Check if pod is terminating
 					if pod.DeletionTimestamp != nil {
@@ -154,21 +138,22 @@ func main() {
 					visualizer.DrawGraph(currentGraph, "pre")
 				}
 				if len(unscheduledPods) > 0 && !terminatingPodsExist {
-					log.Println("Scheduling pods: ", len(unscheduledPods))
+					slog.Info("scheduling", "pods", len(unscheduledPods))
 					newGraph := scheduler.SchedulePods(currentGraph, unscheduledPods, false, false)
 					realiseGraph(newGraph, clientset)
 					if common.Cfg.Visualize {
 						visualizer.DrawGraph(newGraph, "post-schedule")
 					}
 				} else if !terminatingPodsExist {
-					log.Println("Optimizing schedule", len(unscheduledPods))
+					k8k := networkgraph.GetK8Knowledge()
+					slog.Info("optimizing", "pods", len(k8k.Pods), "nodes", len(k8k.Nodes))
 					newGraph := scheduler.Optimize(currentGraph, false, false)
 					realiseGraph(newGraph, clientset)
 					if common.Cfg.Visualize {
 						visualizer.DrawGraph(newGraph, "post-optimize")
 					}
 				} else if terminatingPodsExist {
-					log.Println("Skipping scheduling: terminating pods still exist")
+					slog.Info("skipping: terminating pods exist")
 				}
 
 			case <-quit:
@@ -186,7 +171,7 @@ func queryK8API(clientset kubernetes.Clientset) common.K8Knowledge {
 
 	podList, err := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
-		log.Println("Error interacting with K8")
+		slog.Warn("k8 api error", "err", err)
 	}
 
 	var defaultPods []k8.Pod
@@ -231,7 +216,7 @@ func queryK8API(clientset kubernetes.Clientset) common.K8Knowledge {
 
 	nodeList, err := clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		log.Println("Error interacting with K8")
+		slog.Warn("k8 api error", "err", err)
 	}
 
 	nodes := nodeList.Items
@@ -261,7 +246,8 @@ func queryK8API(clientset kubernetes.Clientset) common.K8Knowledge {
 func queryLinkAPI() []common.Link {
 	conn, err := grpc.Dial("127.0.0.1:50051", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
 	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		slog.Error("grpc connect failed", "err", err)
+		panic(err)
 	}
 	defer conn.Close()
 
@@ -273,12 +259,13 @@ func queryLinkAPI() []common.Link {
 
 	resp, err := client.GetAllLinks(ctx, &pb.EmptyMessage{})
 	if err != nil {
-		log.Printf("Error calling SendData: %v", err)
+		slog.Warn("grpc call failed", "err", err)
 		return []common.Link{}
 	}
 
 	if resp == nil {
-		log.Fatalf("Received nil response")
+		slog.Error("grpc nil response")
+		panic("received nil response from link service")
 	}
 
 	tempLinks := []common.Link{}
@@ -337,18 +324,18 @@ func realiseGraph(graph gograph.Graph[string, *common.Node], clientset *kubernet
 					},
 				}, metav1.CreateOptions{})
 				if err != nil {
-					log.Println(err)
+					slog.Warn("bind error", "pod", edge.Source, "node", edge.Target, "err", err)
 				} else {
-					log.Printf("Pod %s assigned to node %s\n", edge.Source, edge.Target)
+					slog.Info("pod bound", "pod", edge.Source, "node", edge.Target)
 				}
 
 			} else if vertex.Properties["nodeName"] != edge.Target {
-				log.Println("POD MOVEMENT: Pod is scheduled on", vertex.Properties["nodeName"], "and will be moved to", edge.Target)
+				slog.Info("pod moved", "pod", edge.Source, "from", vertex.Properties["nodeName"], "to", edge.Target)
 				err := clientset.CoreV1().Pods("default").Delete(context.TODO(), edge.Source, metav1.DeleteOptions{})
 				if err != nil {
-					log.Println(err)
+					slog.Warn("delete error", "pod", edge.Source, "err", err)
 				} else {
-					log.Printf("Pod %s Deleted. Waiting for K8s controller to reschedule\n", edge.Source)
+					slog.Info("pod deleted for rescheduling", "pod", edge.Source)
 				}
 				continue
 			}
@@ -359,9 +346,9 @@ func realiseGraph(graph gograph.Graph[string, *common.Node], clientset *kubernet
 }
 
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
-	fmt.Println("Connected to MQTT Broker")
+	slog.Info("mqtt connected")
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
-	fmt.Printf("Connection lost: %v", err)
+	slog.Warn("mqtt connection lost", "err", err)
 }

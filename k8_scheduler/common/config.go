@@ -34,7 +34,9 @@ type Config struct {
 		Host  string `yaml:"host"`
 		Topic string `yaml:"topic"`
 	}
-	Visualize bool `yaml:"visualize"`
+	Visualize     bool   `yaml:"visualize"`
+	LogLevel      string `yaml:"log_level"`
+	LogTimeFormat string `yaml:"log_time_format"`
 }
 
 var Cfg Config

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"k8_scheduler/common"
-	"log"
+	"log/slog"
 	"time"
 
 	k8 "k8s.io/api/core/v1"
@@ -123,7 +123,7 @@ func applyK8Knowledge() {
 
 	for _, pod := range k8Knowledge.Pods {
 		if pod.DeletionTimestamp == nil && (pod.Status.Phase == k8.PodRunning || (pod.Status.Phase == k8.PodPending && (pod.Spec.SchedulerName == "custom-scheduler" || pod.Spec.NodeName != ""))) {
-			log.Default().Printf("Adding Pod %s to graph\n", pod.Name)
+			slog.Debug("pod added to graph", "pod", pod.Name)
 			AddPod(&pod)
 		}
 	}
@@ -139,7 +139,7 @@ func verifyEdges() {
 	for _, edge := range edges {
 		err := graph.RemoveEdge(edge.Source, edge.Target)
 		if err != nil {
-			log.Default().Println(err)
+			slog.Warn("remove edge error", "err", err)
 		}
 	}
 

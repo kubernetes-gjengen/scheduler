@@ -2,7 +2,7 @@ package evaluator
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	gomath "math"
 	"strconv"
 	"time"
@@ -183,7 +183,8 @@ func network_penalty(graph gograph.Graph[string, *common.Node], debug bool) floa
 				for i := range shortestPath[0 : len(shortestPath)-1] {
 					edge, err := graph.Edge(shortestPath[i], shortestPath[i+1])
 					if err != nil {
-						log.Panic(err)
+						slog.Error("path edge error", "err", err)
+						panic(err)
 					}
 					lat, _ := strconv.ParseInt(edge.Properties.Attributes["latency"], 10, 64)
 					accumulated_latency += int(lat)
@@ -302,7 +303,7 @@ func node_stability_penalty(graph gograph.Graph[string, *common.Node], debug boo
 	for vertex := range vertices {
 		node, err := graph.Vertex(vertex)
 		if err != nil {
-			log.Println("Error retrieving node ", node.Name, " from Graph")
+			slog.Warn("node not in graph", "node", vertex)
 			continue
 		}
 		if node.Type != "node" {
@@ -316,7 +317,7 @@ func node_stability_penalty(graph gograph.Graph[string, *common.Node], debug boo
 			}
 		}
 		if debug {
-			log.Println(node.Name, " had ", crashes, " from ", currentTime.Add(-1*time.Minute*time.Duration(common.Cfg.Stability.FloatingAverageWindow)), " to ", time.Now())
+			slog.Debug("node stability", "node", node.Name, "crashes", crashes)
 		}
 		val += float64(crashes / common.Cfg.Stability.FloatingAverageWindow)
 	}
@@ -331,7 +332,7 @@ func spread_penalty(graph gograph.Graph[string, *common.Node], debug bool) float
 	for vertex := range vertices {
 		node, err := graph.Vertex(vertex)
 		if err != nil {
-			log.Println("Error retrieving node ", node.Name, " from Graph")
+			slog.Warn("node not in graph", "node", vertex)
 			continue
 		}
 		if node.Type == "node" {
@@ -347,7 +348,7 @@ func spread_penalty(graph gograph.Graph[string, *common.Node], debug bool) float
 	for vertex := range vertices {
 		node, err := graph.Vertex(vertex)
 		if err != nil {
-			log.Println("Error retrieving node ", node.Name, " from Graph")
+			slog.Warn("node not in graph", "node", vertex)
 			continue
 		}
 		if node.Type == "node" {

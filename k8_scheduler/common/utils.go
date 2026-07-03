@@ -11,6 +11,22 @@ import (
 	gograph "github.com/dominikbraun/graph"
 )
 
+var k8sSystemLabelPrefixes = []string{
+	"kubernetes.io/",
+	"beta.kubernetes.io/",
+	"node.kubernetes.io/",
+	"node-role.kubernetes.io/",
+}
+
+func IsSystemLabel(key string) bool {
+	for _, prefix := range k8sSystemLabelPrefixes {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
+}
+
 func PodToVertex(pod k8.Pod) *Node {
 	networkComString := ""
 	if len(pod.Spec.Containers[0].Env) > 0 {
