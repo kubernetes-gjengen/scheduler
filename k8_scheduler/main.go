@@ -150,17 +150,23 @@ func main() {
 
 				networkgraph.SetNetworkKnowledge(slices.Collect(maps.Values(networkLinksMap)))
 				currentGraph := networkgraph.GetGraph()
-				visualizer.DrawGraph(currentGraph, "pre")
+				if common.Cfg.Visualize {
+					visualizer.DrawGraph(currentGraph, "pre")
+				}
 				if len(unscheduledPods) > 0 && !terminatingPodsExist {
 					log.Println("Scheduling pods: ", len(unscheduledPods))
 					newGraph := scheduler.SchedulePods(currentGraph, unscheduledPods, false, false)
 					realiseGraph(newGraph, clientset)
-					visualizer.DrawGraph(newGraph, "post-schedule")
+					if common.Cfg.Visualize {
+						visualizer.DrawGraph(newGraph, "post-schedule")
+					}
 				} else if !terminatingPodsExist {
 					log.Println("Optimizing schedule", len(unscheduledPods))
 					newGraph := scheduler.Optimize(currentGraph, false, false)
 					realiseGraph(newGraph, clientset)
-					visualizer.DrawGraph(newGraph, "post-optimize")
+					if common.Cfg.Visualize {
+						visualizer.DrawGraph(newGraph, "post-optimize")
+					}
 				} else if terminatingPodsExist {
 					log.Println("Skipping scheduling: terminating pods still exist")
 				}

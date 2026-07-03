@@ -34,6 +34,7 @@ type Config struct {
 		Host  string `yaml:"host"`
 		Topic string `yaml:"topic"`
 	}
+	Visualize bool `yaml:"visualize"`
 }
 
 var Cfg Config

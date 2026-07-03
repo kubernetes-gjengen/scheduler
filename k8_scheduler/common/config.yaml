@@ -19,7 +19,6 @@ scheduler:
     children_per_parent: 15
     survivors_per_generation: 15
 
-
 mqtt:
-  host: "127.0.0.1:1883"
+  host: "192.168.3.19:31883"
   topic: "network/linkdata"
