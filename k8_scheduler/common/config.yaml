@@ -20,7 +20,7 @@ scheduler:
     survivors_per_generation: 15
 
 mqtt:
-  host: "192.168.3.19:31883"
+  host: "192.168.3.18:31883"
   topic: "network/linkdata"
 
 log_level: "debug" # "debug" | "info" | "warn" | "error"
