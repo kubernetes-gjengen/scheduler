@@ -39,7 +39,7 @@ func PodToVertex(pod k8.Pod) *Node {
 	jsonNodeSelector, _ := json.Marshal(pod.Spec.NodeSelector)
 	nodeSelector := string(jsonNodeSelector)
 	// println("PodToVertex with CPU request", pod.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(), "and memory request", pod.Spec.Containers[0].Resources.Requests.Memory().Value())
-	return &Node{Name: pod.Name, Type: "pod", Properties: map[string]string{"nodeName": pod.Spec.NodeName, "networkComRequirements": networkComString, "status": string(pod.Status.Phase), "cpu": strconv.Itoa(int(pod.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())), "memory": strconv.Itoa(int(pod.Spec.Containers[0].Resources.Requests.Memory().Value())), "nodeSelector": nodeSelector}}
+	return &Node{Name: pod.Name, Type: "pod", Properties: map[string]string{"nodeName": pod.Spec.NodeName, "networkComRequirements": networkComString, "status": string(pod.Status.Phase), "cpu": strconv.Itoa(int(pod.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())), "memory": strconv.Itoa(int(pod.Spec.Containers[0].Resources.Requests.Memory().Value())), "nodeSelector": nodeSelector, "schedulerName": pod.Spec.SchedulerName}}
 }
 
 func NodeToVertex(node k8.Node, kind string) *Node {

@@ -138,7 +138,7 @@ func EvolutionarySolve(
 				var placedPods []*common.Node
 				for v := range adjacency {
 					node, _ := child.Vertex(v)
-					if node.Type == "pod" {
+					if node.Type == "pod" && node.Properties["schedulerName"] == "custom-scheduler" {
 						placedPods = append(placedPods, node)
 					}
 				}
