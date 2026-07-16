@@ -5,7 +5,7 @@ penalties:
   latency: 10
   throughput: 10
   stability: 10
-  spread: 10
+  spread: 15
   cpu: 10000000
   memory: 10000000
 
