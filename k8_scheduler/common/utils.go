@@ -27,6 +27,28 @@ func IsSystemLabel(key string) bool {
 	return false
 }
 
+// requiredNodeName returns the exact node a pod is pinned to via a required
+// node affinity matchFields term on metadata.name, e.g. the per-node affinity
+// the DaemonSet controller sets on each pod it creates. Returns "" if the pod
+// isn't pinned to a specific node this way.
+func requiredNodeName(pod k8.Pod) string {
+	if pod.Spec.Affinity == nil || pod.Spec.Affinity.NodeAffinity == nil {
+		return ""
+	}
+	required := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+	if required == nil {
+		return ""
+	}
+	for _, term := range required.NodeSelectorTerms {
+		for _, expr := range term.MatchFields {
+			if expr.Key == "metadata.name" && expr.Operator == k8.NodeSelectorOpIn && len(expr.Values) > 0 {
+				return expr.Values[0]
+			}
+		}
+	}
+	return ""
+}
+
 func PodToVertex(pod k8.Pod) *Node {
 	networkComString := ""
 	if len(pod.Spec.Containers[0].Env) > 0 {
@@ -39,7 +61,7 @@ func PodToVertex(pod k8.Pod) *Node {
 	jsonNodeSelector, _ := json.Marshal(pod.Spec.NodeSelector)
 	nodeSelector := string(jsonNodeSelector)
 	// println("PodToVertex with CPU request", pod.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(), "and memory request", pod.Spec.Containers[0].Resources.Requests.Memory().Value())
-	return &Node{Name: pod.Name, Type: "pod", Properties: map[string]string{"nodeName": pod.Spec.NodeName, "networkComRequirements": networkComString, "status": string(pod.Status.Phase), "cpu": strconv.Itoa(int(pod.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())), "memory": strconv.Itoa(int(pod.Spec.Containers[0].Resources.Requests.Memory().Value())), "nodeSelector": nodeSelector, "schedulerName": pod.Spec.SchedulerName}}
+	return &Node{Name: pod.Name, Type: "pod", Properties: map[string]string{"nodeName": pod.Spec.NodeName, "networkComRequirements": networkComString, "status": string(pod.Status.Phase), "cpu": strconv.Itoa(int(pod.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())), "memory": strconv.Itoa(int(pod.Spec.Containers[0].Resources.Requests.Memory().Value())), "nodeSelector": nodeSelector, "schedulerName": pod.Spec.SchedulerName, "requiredNode": requiredNodeName(pod)}}
 }
 
 func NodeToVertex(node k8.Node, kind string) *Node {

@@ -167,14 +167,14 @@ func network_penalty(graph gograph.Graph[string, *common.Node], debug bool) floa
 					if debug {
 						println("Error finding shortest path between pod", common.AssignedNode(graph, pod.Name), "and", common.AssignedNode(graph, destinations[0]), ":", err)
 					}
-					val += gomath.Inf(1)
+					val += float64(common.Cfg.Penalties.UnconnectedPod)
 					continue
 				}
 				if len(shortestPath) == 0 {
 					if debug {
 						println("No path found between pod", common.AssignedNode(graph, pod.Name), "and", common.AssignedNode(graph, destinations[0]))
 					}
-					val += gomath.Inf(1)
+					val += float64(common.Cfg.Penalties.UnconnectedPod)
 					continue
 				}
 

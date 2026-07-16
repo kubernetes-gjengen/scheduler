@@ -21,6 +21,17 @@ type Solution struct {
 // candidatesForPod returns the nodes matching pod's nodeSelector, and whether
 // the pod has no nodeSelector at all (i.e. placement is unrestricted).
 func candidatesForPod(nodes []*common.Node, pod *common.Node) ([]*common.Node, bool) {
+	// A pod pinned to a specific node (e.g. by the DaemonSet controller's
+	// per-pod node affinity) can only ever go on that one node.
+	if required := pod.Properties["requiredNode"]; required != "" {
+		for _, node := range nodes {
+			if node.Name == required {
+				return []*common.Node{node}, false
+			}
+		}
+		return nil, false
+	}
+
 	nodeSelector := make(map[string]string)
 	if pod.Properties["nodeSelector"] != "" {
 		_ = json.Unmarshal([]byte(pod.Properties["nodeSelector"]), &nodeSelector)
@@ -101,7 +112,7 @@ func EvolutionarySolve(
 
 		survivors = append(survivors, sol)
 
-		if val < currentBest.value {
+		if currentBest.graph == nil || val < currentBest.value {
 			currentBest = sol
 		}
 	}
@@ -214,6 +225,10 @@ func EvolutionarySolve(
 	}
 
 	slog.Info("evolutionary solve complete", "score", currentBest.value)
+	if currentBest.graph == nil {
+		slog.Warn("no solution produced, returning base graph unchanged")
+		return baseGraph
+	}
 	common.LogFinalAssignments(currentBest.graph)
 
 	return currentBest.graph
