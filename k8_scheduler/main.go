@@ -66,6 +66,18 @@ func main() {
 		},
 	})))
 
+	slog.Info("penalty configuration",
+		"move_pod", common.Cfg.Penalties.MovePod,
+		"unconnected_pod", common.Cfg.Penalties.UnconnectedPod,
+		"label", common.Cfg.Penalties.Label,
+		"latency", common.Cfg.Penalties.Latency,
+		"throughput", common.Cfg.Penalties.Throughput,
+		"stability", common.Cfg.Penalties.Stability,
+		"spread", common.Cfg.Penalties.Spread,
+		"cpu", common.Cfg.Penalties.CPU,
+		"memory", common.Cfg.Penalties.Memory,
+	)
+
 	ticker := time.NewTicker(10 * time.Second)
 	quit := make(chan struct{})
 
