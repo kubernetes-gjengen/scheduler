@@ -343,7 +343,7 @@ func spread_penalty(graph gograph.Graph[string, *common.Node], debug bool) float
 		}
 	}
 
-	avgPodsPerNode := numPods / numNodes
+	avgPodsPerNode := float64(numPods) / float64(numNodes)
 
 	for vertex := range vertices {
 		node, err := graph.Vertex(vertex)
@@ -353,7 +353,7 @@ func spread_penalty(graph gograph.Graph[string, *common.Node], debug bool) float
 		}
 		if node.Type == "node" {
 			assignedPods := common.AssignedPods(graph, node.Name)
-			val += gomath.Abs(float64(len(assignedPods)-avgPodsPerNode)) * float64(common.Cfg.Penalties.Spread)
+			val += gomath.Abs(float64(len(assignedPods))-avgPodsPerNode) * float64(common.Cfg.Penalties.Spread)
 		}
 	}
 
