@@ -18,6 +18,39 @@ type Solution struct {
 	value float64
 }
 
+// candidatesForPod returns the nodes matching pod's nodeSelector, and whether
+// the pod has no nodeSelector at all (i.e. placement is unrestricted).
+func candidatesForPod(nodes []*common.Node, pod *common.Node) ([]*common.Node, bool) {
+	nodeSelector := make(map[string]string)
+	if pod.Properties["nodeSelector"] != "" {
+		_ = json.Unmarshal([]byte(pod.Properties["nodeSelector"]), &nodeSelector)
+	}
+
+	var candidates []*common.Node
+	for _, node := range nodes {
+		if node.Type != "node" || node.Properties["labels"] == "" {
+			continue
+		}
+
+		var nodeLabels map[string]string
+		_ = json.Unmarshal([]byte(node.Properties["labels"]), &nodeLabels)
+
+		match := true
+		for k, v := range nodeSelector {
+			if nodeLabels[k] != v {
+				match = false
+				break
+			}
+		}
+
+		if match {
+			candidates = append(candidates, node)
+		}
+	}
+
+	return candidates, len(nodeSelector) == 0
+}
+
 func EvolutionarySolve(
 	baseGraph gograph.Graph[string, *common.Node],
 	pods []*common.Node,
@@ -50,40 +83,16 @@ func EvolutionarySolve(
 			}
 		}
 		for _, pod := range pods {
-			nodeSelector := make(map[string]string)
-			if pod.Properties["nodeSelector"] != "" {
-				_ = json.Unmarshal([]byte(pod.Properties["nodeSelector"]), &nodeSelector)
-			}
+			candidates, unrestricted := candidatesForPod(nodes, pod)
 
-			// Find candidate nodes that match all labels
-			var candidates []*common.Node
-
-			for _, node := range nodes { // assuming nodes is a slice of *common.Node
-				if node.Type != "node" || node.Properties["labels"] == "" {
-					continue
-				}
-
-				var nodeLabels map[string]string
-				_ = json.Unmarshal([]byte(node.Properties["labels"]), &nodeLabels)
-
-				match := true
-				for k, v := range nodeSelector {
-					if nodeLabels[k] != v {
-						match = false
-						break
-					}
-				}
-
-				if match {
-					candidates = append(candidates, node)
-				}
-			}
-
-			// Assign pod to a random candidate node (or pick first)
+			// Assign pod to a random candidate node
 			if len(candidates) > 0 {
-				g = Random(g, pod, false, false, candidates...) // modify Random to accept candidates
+				g = Random(g, pod, false, false, candidates...)
+			} else if unrestricted {
+				g = Random(g, pod, false, false) // no nodeSelector, no restriction
 			} else {
-				g = Random(g, pod, false, false) // fallback
+				// nodeSelector is a hard filter: no node satisfies it, leave the pod unplaced
+				g.AddVertex(pod, common.VertexAttributes("pending_pod")...)
 			}
 		}
 
@@ -149,8 +158,22 @@ func EvolutionarySolve(
 				}
 				child.RemoveVertex(chosen.Name)
 
-				// Reassign randomly
-				child = Random(child, chosen, false, false)
+				// Reassign, respecting chosen's nodeSelector if it has one
+				var nodes []*common.Node
+				for v := range adjacency {
+					vertex, _ := child.Vertex(v)
+					if vertex != nil && vertex.Type == "node" {
+						nodes = append(nodes, vertex)
+					}
+				}
+				candidates, unrestricted := candidatesForPod(nodes, chosen)
+				if len(candidates) > 0 {
+					child = Random(child, chosen, false, false, candidates...)
+				} else if unrestricted {
+					child = Random(child, chosen, false, false)
+				} else {
+					child.AddVertex(chosen, common.VertexAttributes("pending_pod")...)
+				}
 
 				val := evaluator.EvaluateStep(baseGraph, child, false)
 
