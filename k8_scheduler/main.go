@@ -113,10 +113,13 @@ func main() {
 				k8knowledge := queryK8API(*clientset)
 				networkgraph.SetK8Knowledge(k8knowledge)
 
+				nodeOnline := map[string]bool{}
 				for _, node := range networkgraph.GetK8Knowledge().Nodes {
 					cpu := node.Status.Allocatable[v1.ResourceCPU]
 					mem := node.Status.Allocatable[v1.ResourceMemory]
-					args := []any{"name", node.Name, "online", common.IsNodeOnline(&node), "cpu", cpu.String(), "mem", mem.String()}
+					online := common.IsNodeOnline(&node)
+					nodeOnline[node.Name] = online
+					args := []any{"name", node.Name, "online", online, "cpu", cpu.String(), "mem", mem.String()}
 					for k, v := range node.Labels {
 						if !common.IsSystemLabel(k) {
 							args = append(args, k, v)
@@ -134,9 +137,13 @@ func main() {
 					}
 					slog.Debug("pod", "name", pod.Name, "phase", pod.Status.Phase, "node", pod.Spec.NodeName, "terminating", pod.DeletionTimestamp != nil, "cpu", cpuReq.String(), "mem", memReq.String())
 
-					// Check if pod is terminating
+					// A pod stuck terminating on a node that's down will never
+					// actually go away until the node comes back - the kubelet
+					// has to ack the deletion. Don't let it block scheduling forever.
 					if pod.DeletionTimestamp != nil {
-						terminatingPodsExist = true
+						if nodeOnline[pod.Spec.NodeName] {
+							terminatingPodsExist = true
+						}
 						continue
 					}
 					if pod.Status.Phase == "Pending" && pod.Spec.NodeName == "" && pod.Spec.SchedulerName == "custom-scheduler" {
@@ -151,7 +158,7 @@ func main() {
 				}
 				if len(unscheduledPods) > 0 && !terminatingPodsExist {
 					slog.Info("scheduling", "pods", len(unscheduledPods))
-					newGraph := scheduler.SchedulePods(currentGraph, unscheduledPods, false, false)
+					newGraph := scheduler.SchedulePods(currentGraph, unscheduledPods, common.Cfg.Debug, false)
 					realiseGraph(newGraph, clientset)
 					if common.Cfg.Visualize {
 						visualizer.DrawGraph(newGraph, "post-schedule")
@@ -159,7 +166,7 @@ func main() {
 				} else if !terminatingPodsExist {
 					k8k := networkgraph.GetK8Knowledge()
 					slog.Info("optimizing", "pods", len(k8k.Pods), "nodes", len(k8k.Nodes))
-					newGraph := scheduler.Optimize(currentGraph, false, false)
+					newGraph := scheduler.Optimize(currentGraph, common.Cfg.Debug, false)
 					realiseGraph(newGraph, clientset)
 					if common.Cfg.Visualize {
 						visualizer.DrawGraph(newGraph, "post-optimize")

@@ -35,6 +35,7 @@ type Config struct {
 		Topic string `yaml:"topic"`
 	}
 	Visualize     bool   `yaml:"visualize"`
+	Debug         bool   `yaml:"debug"`
 	LogLevel      string `yaml:"log_level"`
 	LogTimeFormat string `yaml:"log_time_format"`
 }

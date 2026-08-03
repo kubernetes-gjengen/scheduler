@@ -20,8 +20,13 @@ scheduler:
     survivors_per_generation: 15
 
 mqtt:
-  host: "192.168.3.18:31883"
+  host: "192.168.42.1:31883" # mosquitto is a nodeservice on the cluster, so the ip just has to be an arbitryary ip in the cluster
   topic: "network/linkdata"
 
-log_level: "debug" # "debug" | "info" | "warn" | "error"
+log_level: "info" # "debug" | "info" | "warn" | "error"
 log_time_format: "time" # "time" = 15:04:05 | "datetime" = 2006-01-02 15:04:05 | omit = rfc3339
+
+# Dumps resource/network penalty scoring detail (println, not slog) for the
+# winning candidate on every SchedulePods/Optimize call. Independent of
+# log_level - that only gates slog output (e.g. final assignments).
+debug: false
