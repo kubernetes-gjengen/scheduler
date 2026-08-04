@@ -1,13 +1,13 @@
 penalties:
   move_pod: 100
   unconnected_pod: 1000000
-  label: 10000000
+  label: 100000
   latency: 10
   throughput: 10
   stability: 10
   spread: 15
-  cpu: 10000000
-  memory: 10000000
+  cpu: 10000
+  memory: 1000
 
 stability:
   floating_average_window: 30 # in minutes
