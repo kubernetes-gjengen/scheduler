@@ -9,12 +9,17 @@ type Node struct {
 	Properties map[string]string
 }
 
+// Wire format is network_prober.sh's send_json, e.g.
+// {"from":"w1","to":"w2","latency":12,"throughput":0.7,"timestamp":1735000000} -
+// field names don't match Source/Target, so without these tags encoding/json
+// silently leaves them "" (Latency/Throughput/Timestamp still matched
+// case-insensitively by luck).
 type Link struct {
-	Source     string
-	Target     string
-	Latency    int
-	Throughput float64
-	Timestamp  int
+	Source     string  `json:"from"`
+	Target     string  `json:"to"`
+	Latency    int     `json:"latency"`
+	Throughput float64 `json:"throughput"`
+	Timestamp  int     `json:"timestamp"`
 }
 
 type NetworkComRequirement struct {

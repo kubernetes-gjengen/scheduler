@@ -4,8 +4,11 @@ package networkgraph
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"k8_scheduler/common"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	k8 "k8s.io/api/core/v1"
@@ -16,6 +19,21 @@ import (
 var (
 	networkKnowledge []common.Link
 	k8Knowledge      common.K8Knowledge
+	previousLinks    = make(map[string]common.Link)
+)
+
+// Ignore link jitter below these thresholds when deciding whether a link
+// counts as "changed" - real telemetry wobbles a bit every tick even when
+// nothing meaningful happened.
+const (
+	latencyChangeThresholdMs      = 1
+	throughputChangeThresholdMbps = 0.5
+	// A field-test mesh routinely has most links move by more than the
+	// thresholds above on every tick (real RF/route jitter, not noise) -
+	// logging all of them would be most of the log volume. Only the
+	// biggest movers are worth a human's attention; the rest just confirm
+	// "yes, still a live mesh."
+	topologyChangeLogLimit = 5
 )
 
 // The graph which represents the current networkgraph
@@ -79,8 +97,95 @@ func UpdateNode(oldNode *k8.Node, newNode *k8.Node, newNodeIsOnline bool) {
 }
 
 func SetNetworkKnowledge(links []common.Link) {
+	logTopologyChanges(links)
 	networkKnowledge = links
 	applyNetworkKnowledge()
+}
+
+type linkChange struct {
+	desc      string
+	magnitude float64
+}
+
+// pendingTopologyChange holds the most recent link diff, waiting to be
+// logged - see PendingTopologyChange. A field-test mesh has some link move
+// on essentially every tick (real RF jitter, not noise), so logging it
+// unconditionally here would spam the journal regardless of whether it
+// actually affects the scheduler's score; the scheduler only emits it when
+// the following solve's score actually changed.
+var (
+	pendingTopologyChangeCount int
+	pendingTopologyChangeTop   string
+)
+
+// PendingTopologyChange returns and clears the link diff computed by the
+// most recent SetNetworkKnowledge call, if any.
+func PendingTopologyChange() (count int, top string, ok bool) {
+	if pendingTopologyChangeCount == 0 {
+		return 0, "", false
+	}
+	count, top = pendingTopologyChangeCount, pendingTopologyChangeTop
+	pendingTopologyChangeCount, pendingTopologyChangeTop = 0, ""
+	return count, top, true
+}
+
+// logTopologyChanges records the biggest link movements since the last
+// call (see PendingTopologyChange), capped to the topologyChangeLogLimit
+// biggest movers by magnitude rather than every changed link. Called once
+// per scheduler tick, not per MQTT message.
+func logTopologyChanges(links []common.Link) {
+	current := make(map[string]common.Link, len(links))
+	var changed []linkChange
+
+	for _, link := range links {
+		key := link.Source + ";" + link.Target
+		current[key] = link
+
+		prev, existed := previousLinks[key]
+
+		latDelta := link.Latency - prev.Latency
+		if latDelta < 0 {
+			latDelta = -latDelta
+		}
+		thrDelta := link.Throughput - prev.Throughput
+		if thrDelta < 0 {
+			thrDelta = -thrDelta
+		}
+
+		switch {
+		case !existed:
+			changed = append(changed, linkChange{
+				desc: fmt.Sprintf(
+					"%s->%s new lat:%dms thr:%.2fmbps", link.Source, link.Target, link.Latency, link.Throughput,
+				),
+				magnitude: float64(link.Latency) + link.Throughput*20,
+			})
+		case latDelta >= latencyChangeThresholdMs || thrDelta >= throughputChangeThresholdMbps:
+			changed = append(changed, linkChange{
+				desc: fmt.Sprintf(
+					"%s->%s lat:%d->%dms thr:%.2f->%.2fmbps",
+					link.Source, link.Target, prev.Latency, link.Latency, prev.Throughput, link.Throughput,
+				),
+				magnitude: float64(latDelta) + thrDelta*20,
+			})
+		}
+	}
+
+	if len(changed) > 0 {
+		sort.Slice(changed, func(i, j int) bool { return changed[i].magnitude > changed[j].magnitude })
+
+		shown := changed
+		if len(shown) > topologyChangeLogLimit {
+			shown = shown[:topologyChangeLogLimit]
+		}
+		descs := make([]string, len(shown))
+		for i, c := range shown {
+			descs[i] = c.desc
+		}
+		pendingTopologyChangeCount = len(changed)
+		pendingTopologyChangeTop = strings.Join(descs, "; ")
+	}
+	previousLinks = current
 }
 
 func GetK8Knowledge() common.K8Knowledge {

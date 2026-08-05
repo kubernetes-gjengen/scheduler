@@ -3,6 +3,7 @@ package algorithms
 import (
 	"encoding/json"
 	"k8_scheduler/common"
+	networkgraph "k8_scheduler/networkGraph"
 	"k8_scheduler/scheduler/evaluator"
 	"log/slog"
 	"math"
@@ -15,8 +16,14 @@ import (
 
 type Solution struct {
 	graph gograph.Graph[string, *common.Node]
-	value float64
+	value evaluator.ScoreBreakdown
 }
+
+// lastLoggedScore is the previous call's final score, used to decide
+// whether a pending topology change (see networkgraph.PendingTopologyChange)
+// is worth logging - only when it actually moved the score, not on every
+// tick's RF jitter.
+var lastLoggedScore = math.NaN()
 
 // candidatesForPod returns the nodes matching pod's nodeSelector, and whether
 // the pod has no nodeSelector at all (i.e. placement is unrestricted).
@@ -78,7 +85,7 @@ func EvolutionarySolve(
 	// ---------- Initial population (diverse) ----------
 
 	survivors := make([]Solution, 0, survivorsPerGen)
-	currentBest := Solution{nil, math.MaxFloat64}
+	currentBest := Solution{nil, evaluator.ScoreBreakdown{Resources: math.MaxFloat64}}
 	sort.SliceStable(pods, func(i, j int) bool {
 		return pods[i].Properties["nodeSelector"] != ""
 	})
@@ -112,13 +119,13 @@ func EvolutionarySolve(
 
 		survivors = append(survivors, sol)
 
-		if currentBest.graph == nil || val < currentBest.value {
+		if currentBest.graph == nil || val.Total() < currentBest.value.Total() {
 			currentBest = sol
 		}
 	}
 
 	if debug {
-		println("Initial best:", currentBest.value)
+		println("Initial best:", currentBest.value.Total())
 	}
 
 	// ---------- Evolution loop ----------
@@ -129,8 +136,8 @@ func EvolutionarySolve(
 			println("Generation:", gen)
 		}
 
-		if currentBest.value < 0.1 {
-			println("Final best evaluation:", currentBest.value)
+		if currentBest.value.Total() < 0.1 {
+			println("Final best evaluation:", currentBest.value.Total())
 			return currentBest.graph
 		}
 
@@ -188,11 +195,11 @@ func EvolutionarySolve(
 
 				val := evaluator.EvaluateStep(baseGraph, child, false)
 
-				if val < currentBest.value {
+				if val.Total() < currentBest.value.Total() {
 					currentBest = Solution{child, val}
 				}
 
-				if val < 0.1 {
+				if val.Total() < 0.1 {
 					if debug {
 						println("Perfect solution found")
 					}
@@ -210,7 +217,7 @@ func EvolutionarySolve(
 		// ----- Select best children -----
 
 		sort.Slice(children, func(i, j int) bool {
-			return children[i].value < children[j].value
+			return children[i].value.Total() < children[j].value.Total()
 		})
 
 		if len(children) < survivorsPerGen {
@@ -220,11 +227,29 @@ func EvolutionarySolve(
 		}
 
 		if debug {
-			println("Best this gen:", survivors[0].value)
+			println("Best this gen:", survivors[0].value.Total())
 		}
 	}
 
-	slog.Info("evolutionary solve complete", "score", currentBest.value)
+	finalScore := currentBest.value.Total()
+	if count, top, ok := networkgraph.PendingTopologyChange(); ok {
+		if math.IsNaN(lastLoggedScore) || math.Abs(finalScore-lastLoggedScore) > 1e-9 {
+			slog.Info("topology changed", "count", count, "top", top)
+		}
+	}
+	lastLoggedScore = finalScore
+
+	slog.Info("evolutionary solve complete",
+		"score", finalScore,
+		"score_resources", currentBest.value.Resources,
+		"score_unconnected", currentBest.value.Unconnected,
+		"score_latency", currentBest.value.Latency,
+		"score_throughput", currentBest.value.Throughput,
+		"score_labels", currentBest.value.Labels,
+		"score_stability", currentBest.value.Stability,
+		"score_spread", currentBest.value.Spread,
+		"score_move_pod", currentBest.value.MovePod,
+	)
 	if currentBest.graph == nil {
 		slog.Warn("no solution produced, returning base graph unchanged")
 		return baseGraph

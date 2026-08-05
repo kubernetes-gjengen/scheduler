@@ -15,8 +15,26 @@ import (
 
 var UnavailabilityMap = make(map[string][]time.Time)
 
-func EvaluateStep(oldGraph gograph.Graph[string, *common.Node], newGraph gograph.Graph[string, *common.Node], debug bool) float64 {
-	val := Evaluate(newGraph, debug)
+// ScoreBreakdown is the per-penalty-term cost of a candidate placement.
+// Kept split (rather than a single summed float) so callers can log which
+// term actually moved instead of just the total.
+type ScoreBreakdown struct {
+	Resources   float64
+	Unconnected float64
+	Latency     float64
+	Throughput  float64
+	Labels      float64
+	Stability   float64
+	Spread      float64
+	MovePod     float64
+}
+
+func (s ScoreBreakdown) Total() float64 {
+	return s.Resources + s.Unconnected + s.Latency + s.Throughput + s.Labels + s.Stability + s.Spread + s.MovePod
+}
+
+func EvaluateStep(oldGraph gograph.Graph[string, *common.Node], newGraph gograph.Graph[string, *common.Node], debug bool) ScoreBreakdown {
+	breakdown := Evaluate(newGraph, debug)
 	move_pod_penalty := common.Cfg.Penalties.MovePod
 	old_assignments := []gograph.Edge[string]{}
 	new_assignments := []gograph.Edge[string]{}
@@ -42,13 +60,13 @@ func EvaluateStep(oldGraph gograph.Graph[string, *common.Node], newGraph gograph
 			}
 		}
 		if !found {
-			val += float64(move_pod_penalty)
+			breakdown.MovePod += float64(move_pod_penalty)
 		}
 	}
-	return val
+	return breakdown
 }
 
-func Evaluate(graph gograph.Graph[string, *common.Node], debug bool) float64 {
+func Evaluate(graph gograph.Graph[string, *common.Node], debug bool) ScoreBreakdown {
 	graph_copy := graph
 	edges, _ := graph_copy.Edges()
 	for _, edge := range edges {
@@ -59,19 +77,24 @@ func Evaluate(graph gograph.Graph[string, *common.Node], debug bool) float64 {
 	if debug {
 		println("-------New Evaluation-------")
 	}
-	val := 0.0
 
-	val += resources_penalty(graph_copy, false)
-	val += network_penalty(graph_copy, false)
-	val += labels_penalty(graph_copy, false)
-	val += node_stability_penalty(graph_copy, false)
-	val += spread_penalty(graph_copy, false)
+	unconnected, latency, throughput := network_penalty(graph_copy, debug)
 
-	if debug {
-		println("Evaluation:", val)
+	breakdown := ScoreBreakdown{
+		Resources:   resources_penalty(graph_copy, debug),
+		Unconnected: unconnected,
+		Latency:     latency,
+		Throughput:  throughput,
+		Labels:      labels_penalty(graph_copy, debug),
+		Stability:   node_stability_penalty(graph_copy, debug),
+		Spread:      spread_penalty(graph_copy, debug),
 	}
 
-	return val
+	if debug {
+		println("Evaluation:", breakdown.Total())
+	}
+
+	return breakdown
 }
 
 func resources_penalty(graph gograph.Graph[string, *common.Node], debug bool) float64 {
@@ -128,8 +151,7 @@ func resources_penalty(graph gograph.Graph[string, *common.Node], debug bool) fl
 	return val
 }
 
-func network_penalty(graph gograph.Graph[string, *common.Node], debug bool) float64 {
-	val := 0.0
+func network_penalty(graph gograph.Graph[string, *common.Node], debug bool) (unconnectedVal float64, latencyVal float64, throughputVal float64) {
 	edges, _ := graph.Edges()
 	for _, edge := range edges {
 		if edge.Properties.Attributes["type"] == "connection" {
@@ -167,14 +189,14 @@ func network_penalty(graph gograph.Graph[string, *common.Node], debug bool) floa
 					if debug {
 						println("Error finding shortest path between pod", common.AssignedNode(graph, pod.Name), "and", common.AssignedNode(graph, destinations[0]), ":", err)
 					}
-					val += float64(common.Cfg.Penalties.UnconnectedPod)
+					unconnectedVal += float64(common.Cfg.Penalties.UnconnectedPod)
 					continue
 				}
 				if len(shortestPath) == 0 {
 					if debug {
 						println("No path found between pod", common.AssignedNode(graph, pod.Name), "and", common.AssignedNode(graph, destinations[0]))
 					}
-					val += float64(common.Cfg.Penalties.UnconnectedPod)
+					unconnectedVal += float64(common.Cfg.Penalties.UnconnectedPod)
 					continue
 				}
 
@@ -197,7 +219,7 @@ func network_penalty(graph gograph.Graph[string, *common.Node], debug bool) floa
 					if debug {
 						println("Latency penalty: ", latency_penalty)
 					}
-					val += latency_penalty
+					latencyVal += latency_penalty
 				}
 
 				// Calculate the throughput penalty
@@ -231,7 +253,7 @@ func network_penalty(graph gograph.Graph[string, *common.Node], debug bool) floa
 							old_link_wanted_service,
 						)
 
-						val += float64(common.Cfg.Penalties.Throughput) *
+						throughputVal += float64(common.Cfg.Penalties.Throughput) *
 							(new_link_wanted_service.M - throughput)
 					}
 					// else: capacity is sufficient → lastAdditionalOutput unchanged
@@ -241,7 +263,7 @@ func network_penalty(graph gograph.Graph[string, *common.Node], debug bool) floa
 		}
 	}
 
-	return val
+	return unconnectedVal, latencyVal, throughputVal
 }
 
 func labels_penalty(graph gograph.Graph[string, *common.Node], debug bool) float64 {
